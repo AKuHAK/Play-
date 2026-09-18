@@ -4,6 +4,7 @@
 #include "StdStream.h"
 #include "StdStreamUtils.h"
 #include "iop/IopBios.h"
+#include "iop/ioman/PathDirectoryDevice.h"
 #include "JUnitTestReportWriter.h"
 #include "gs/GSH_Null.h"
 #ifdef _WIN32
@@ -127,10 +128,19 @@ void ExecuteEeTest(const fs::path& testFilePath, const std::string& gsHandlerNam
 	    [&executionOver]() {
 		    executionOver = true;
 	    });
-	virtualMachine.m_ee->m_os->BootFromFile(testFilePath);
 	{
 		auto iopOs = dynamic_cast<CIopBios*>(virtualMachine.m_iop->m_bios.get());
 		iopOs->GetIoman()->SetFileStream(Iop::CIoman::FID_STDOUT, resultStream);
+		auto testDirDevice = std::make_shared<Iop::Ioman::CPathDirectoryDevice>(testFilePath.parent_path());
+		iopOs->GetIoman()->RegisterDevice("host", testDirDevice);
+		iopOs->GetIoman()->RegisterDevice("host0", testDirDevice);
+		iopOs->GetIoman()->RegisterDevice("mass", testDirDevice);
+		iopOs->GetIoman()->RegisterDevice("mass0", testDirDevice);
+	}
+	{
+		auto virtualExecutablePath = "host:" + testFilePath.filename().string();
+		CPS2OS::ArgumentList args = { virtualExecutablePath, "--auto" };
+		virtualMachine.m_ee->m_os->BootFromVirtualPath(virtualExecutablePath.c_str(), args);
 	}
 	virtualMachine.Resume();
 

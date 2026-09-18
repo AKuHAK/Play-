@@ -81,7 +81,8 @@ void CDirectoryDevice::MakeDirectory(const char* devicePath)
 {
 	auto basePath = GetBasePath();
 	auto path = Iop::PathUtils::MakeHostPath(basePath, devicePath);
-	if(!fs::create_directory(path))
+	std::error_code ec;
+	if(!fs::exists(path, ec) && !fs::create_directories(path, ec))
 	{
 		throw std::runtime_error("Failed to create directory.");
 	}

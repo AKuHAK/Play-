@@ -311,6 +311,8 @@ set(COMMON_SRC_FILES
 	iop/Iop_Cdvdfsv.h
 	iop/Iop_Cdvdman.cpp
 	iop/Iop_Cdvdman.h
+	iop/Iop_MechaCon.cpp
+	iop/Iop_MechaCon.h
 	iop/Iop_Dev9.cpp
 	iop/Iop_Dev9.h
 	iop/Iop_Dmac.cpp

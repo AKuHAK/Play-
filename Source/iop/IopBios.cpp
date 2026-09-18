@@ -274,6 +274,7 @@ void CIopBios::Reset(uint32 ramSize, const Iop::SifManPtr& sifMan)
 	{
 		m_padman = std::make_shared<Iop::CPadMan>();
 		m_mtapman = std::make_shared<Iop::CMtapMan>();
+		RegisterHleModule(m_padman);
 	}
 
 	m_hleModules.insert(std::make_pair("rom0:SIO2MAN", m_padman));
@@ -904,11 +905,9 @@ void CIopBios::ProcessModuleReset(const std::string& initCommand)
 	uint32 imageVersion = m_defaultImageVersion;
 
 	auto initArguments = StringUtils::Split(initCommand);
-	assert(initArguments.size() >= 1);
 	if(initArguments.size() >= 1)
 	{
 		auto loaderPath = initArguments[0];
-		assert(loaderPath.find("UDNL") != std::string::npos);
 		if(initArguments.size() >= 2)
 		{
 			auto imagePath = initArguments[1];

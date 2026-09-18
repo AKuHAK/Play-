@@ -286,6 +286,23 @@ bool CCdvdfsv::Invoke593(uint32 method, uint32* args, uint32 argsSize, uint32* r
 	}
 	break;
 
+	case 0x0B:
+	{
+		// SCMD (ApplySCmd): args is cdvdScmdParam (cmdNum [2], inBuffSize [2], inBuff [16])
+		assert(argsSize >= 4);
+		assert(retSize >= 16);
+		const uint8* inBytes = reinterpret_cast<const uint8*>(args);
+		uint16 cmdNum = *reinterpret_cast<const uint16*>(inBytes + 0);
+		uint16 inSize = *reinterpret_cast<const uint16*>(inBytes + 2);
+		const uint8* inBuff = inBytes + 4;
+		uint8* outBuff = reinterpret_cast<uint8*>(ret);
+
+		uint8 status = m_mechaCon.ExecuteSCmd(cmdNum, inBuff, inSize, outBuff);
+		CLog::GetInstance().Print(LOG_NAME, "SCMD(cmd = 0x%02X, inSize = %d) -> stat = 0x%02X\r\n", cmdNum, inSize, status);
+		return true;
+	}
+	break;
+
 	default:
 		CLog::GetInstance().Warn(LOG_NAME, "Unknown method invoked (0x%08X, 0x%08X).\r\n", 0x593, method);
 		break;

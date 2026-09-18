@@ -4,6 +4,7 @@
 #include "Iop_SifMan.h"
 #include "../SifModuleAdapter.h"
 #include "../OpticalMedia.h"
+#include "Iop_MechaCon.h"
 #include "zip/ZipArchiveWriter.h"
 #include "zip/ZipArchiveReader.h"
 
@@ -91,6 +92,8 @@ namespace Iop
 		CSifModuleAdapter m_module597;
 		CSifModuleAdapter m_module59A;
 		CSifModuleAdapter m_module59C;
+
+		CMechaCon m_mechaCon;
 	};
 
 	typedef std::shared_ptr<CCdvdfsv> CdvdfsvPtr;
