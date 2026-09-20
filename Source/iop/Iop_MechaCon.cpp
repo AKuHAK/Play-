@@ -639,11 +639,43 @@ void CMechaCon::ProcessWorker()
 	// Worker state: Block 12 byte 14 (0x20E) -- != 0 means armed
 	// Dest NVRAM word: Block 13 bytes 0-1 (0x210-0x211)
 	if (m_isV1Early) {
-		bool earlyTrigger = ((m_ram[0x1F6] & 0x03) == 0x03 && m_ram[0x20E] != 0);
-		if (!earlyTrigger && !m_configOpen && m_ram[0x20E] != 0) {
+		// Layout 3 (cxp101064-qfp-v1) and Layout 4 (early-cxp102064-v1v2)
+		// Hardware early C166 layout: flags at Block 12 byte 12 (0x20C), state at Block 14 byte 4 (0x224)
+		bool earlyTrigger = ((m_ram[0x20C] & 0x03) == 0x03 && m_ram[0x224] != 0);
+		if (!earlyTrigger && !m_configOpen && m_ram[0x224] != 0) {
 			earlyTrigger = true;
 		}
 		if (earlyTrigger) {
+			uint32 romAddr = m_ram[0x20E]
+			               | (static_cast<uint32>(m_ram[0x20F]) << 8)
+			               | (static_cast<uint32>(m_ram[0x210]) << 16)
+			               | (static_cast<uint32>(m_ram[0x211]) << 24);
+			uint8 countWords = m_ram[0x223];
+			if (countWords == 0) countWords = 128;
+
+			uint16 nvmWord = m_ram[0x226] | (static_cast<uint16>(m_ram[0x227]) << 8);
+			if (nvmWord >= 512) nvmWord = m_ram[0x226];
+
+			uint32 romOffset = romAddr & 0x3FFFF;
+			uint32 copyBytes = countWords * 2;
+			uint32 nvmOffset = nvmWord * 2;
+
+			if (romOffset + copyBytes <= sizeof(m_rom) && nvmOffset + copyBytes <= sizeof(m_nvram)) {
+				memcpy(&m_nvram[nvmOffset], &m_rom[romOffset], copyBytes);
+			}
+			m_ram[0x20C] &= ~0x03;
+			m_ram[0x224] = 0;
+			CLog::GetInstance().Print(LOG_NAME, "[WORKER-V1] ROM 0x%06X -> NVRAM[%d] (%d words)\r\n",
+			                          romAddr, nvmWord, countWords);
+			return;
+		}
+
+		// Legacy / fallback hook on Block 11 byte 6 (0x1F6)
+		bool legacyTrigger = ((m_ram[0x1F6] & 0x03) == 0x03 && m_ram[0x20E] != 0);
+		if (!legacyTrigger && !m_configOpen && m_ram[0x20E] != 0) {
+			legacyTrigger = true;
+		}
+		if (legacyTrigger) {
 			uint32 romAddr = m_ram[0x1F8]
 			               | (static_cast<uint32>(m_ram[0x1F9]) << 8)
 			               | (static_cast<uint32>(m_ram[0x1FA]) << 16)
@@ -661,11 +693,11 @@ void CMechaCon::ProcessWorker()
 			if (romOffset + copyBytes <= sizeof(m_rom) && nvmOffset + copyBytes <= sizeof(m_nvram)) {
 				memcpy(&m_nvram[nvmOffset], &m_rom[romOffset], copyBytes);
 			}
-			// Clear flags and worker state
 			m_ram[0x1F6] &= ~0x03;
 			m_ram[0x20E] = 0;
-			CLog::GetInstance().Print(LOG_NAME, "[WORKER-V1] ROM 0x%06X -> NVRAM[%d] (%d words)\r\n",
+			CLog::GetInstance().Print(LOG_NAME, "[WORKER-V1-LEGACY] ROM 0x%06X -> NVRAM[%d] (%d words)\r\n",
 			                          romAddr, nvmWord, countWords);
+			return;
 		}
 		return;
 	}
