@@ -1,5 +1,7 @@
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QTimer>
+#include <QPixmap>
 #include <QtGlobal>
 #include "mainwindow.h"
 #include "PathUtils.h"
@@ -48,6 +50,12 @@ int main(int argc, char* argv[])
 
 	QCommandLineOption load_state_option("state", "Load state at index", "state_index");
 	parser.addOption(load_state_option);
+
+	QCommandLineOption screenshot_option("screenshot", "Save screenshot to path after delay.", "path");
+	parser.addOption(screenshot_option);
+
+	QCommandLineOption screenshot_delay_option("screenshot-delay", "Delay before screenshot in ms.", "delay_ms");
+	parser.addOption(screenshot_delay_option);
 
 	parser.process(a);
 
@@ -103,6 +111,20 @@ int main(int argc, char* argv[])
 		w.ShowFrameDebugger();
 	}
 #endif
+
+	if(parser.isSet(screenshot_option))
+	{
+		QString scPath = parser.value(screenshot_option);
+		int delayMs = parser.isSet(screenshot_delay_option) ? parser.value(screenshot_delay_option).toInt() : 3500;
+		QTimer::singleShot(delayMs, [&w, scPath, &a]() {
+			QPixmap pixmap = w.grab();
+			pixmap.save(scPath);
+			printf("[SCREENSHOT] Saved screenshot to %s\n", scPath.toUtf8().constData());
+			fflush(stdout);
+			a.quit();
+		});
+	}
+
 	return a.exec();
 }
 

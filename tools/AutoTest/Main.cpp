@@ -139,7 +139,9 @@ void ExecuteEeTest(const fs::path& testFilePath, const std::string& gsHandlerNam
 	}
 	{
 		auto virtualExecutablePath = "host:" + testFilePath.filename().string();
-		CPS2OS::ArgumentList args = { virtualExecutablePath, "--auto" };
+		const char* modeEnv = getenv("PLAY_MECHACON_MODE");
+		std::string flag = (modeEnv && strlen(modeEnv) > 0) ? (std::string("--") + modeEnv) : "--auto";
+		CPS2OS::ArgumentList args = { virtualExecutablePath, flag };
 		virtualMachine.m_ee->m_os->BootFromVirtualPath(virtualExecutablePath.c_str(), args);
 	}
 	virtualMachine.Resume();

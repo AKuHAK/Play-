@@ -42,6 +42,9 @@ void CMechaCon::Reset()
 	m_configBlockCount = 0;
 	m_configBlockIndex = 0;
 
+	const char* envMode = getenv("PLAY_MECHACON_MODE");
+	bool isV1Mode = (envMode && (strcmp(envMode, "v1") == 0 || strcmp(envMode, "1.02") == 0 || strcmp(envMode, "v1.02") == 0));
+
 	// Check environment variable PLAY_MECHACON_ROM first
 	const char* envRom = getenv("PLAY_MECHACON_ROM");
 	bool romLoaded = false;
@@ -51,10 +54,10 @@ void CMechaCon::Reset()
 
 	if (!romLoaded) {
 		const char* romPaths[] = {
-			"dumps/2.12_0.BIN",
-			"../dumps/2.12_0.BIN",
-			"../../dumps/2.12_0.BIN",
-			"/Users/imac/Downloads/spc_antigravity/dumps/2.12_0.BIN",
+			isV1Mode ? "dumps/2.02_0.BIN" : "dumps/2.12_0.BIN",
+			isV1Mode ? "../dumps/2.02_0.BIN" : "../dumps/2.12_0.BIN",
+			isV1Mode ? "../../dumps/2.02_0.BIN" : "../../dumps/2.12_0.BIN",
+			isV1Mode ? "/Users/imac/Downloads/spc_antigravity/dumps/2.02_0.BIN" : "/Users/imac/Downloads/spc_antigravity/dumps/2.12_0.BIN",
 			nullptr
 		};
 		for (int i = 0; romPaths[i]; i++) {
@@ -70,15 +73,33 @@ void CMechaCon::Reset()
 	}
 
 	if (!nvmLoaded) {
-		const char* nvmPaths[] = {
-			"SCPH-30000_5315239/SCPH-30000_5315239_NVM.bin",
-			"../SCPH-30000_5315239/SCPH-30000_5315239_NVM.bin",
-			"../../SCPH-30000_5315239/SCPH-30000_5315239_NVM.bin",
-			"/Users/imac/Downloads/spc_antigravity/SCPH-30000_5315239/SCPH-30000_5315239_NVM.bin",
-			nullptr
-		};
-		for (int i = 0; nvmPaths[i]; i++) {
-			if (LoadNvram(nvmPaths[i])) break;
+		if (isV1Mode || m_major == 1) {
+			const char* v1NvmPaths[] = {
+				"MECHA_v1.02_0903300/NVRAM.BIN",
+				"../MECHA_v1.02_0903300/NVRAM.BIN",
+				"../../MECHA_v1.02_0903300/NVRAM.BIN",
+				"/Users/imac/Downloads/spc_antigravity/MECHA_v1.02_0903300/NVRAM.BIN",
+				nullptr
+			};
+			for (int i = 0; v1NvmPaths[i]; i++) {
+				if (LoadNvram(v1NvmPaths[i])) {
+					nvmLoaded = true;
+					break;
+				}
+			}
+		}
+
+		if (!nvmLoaded) {
+			const char* nvmPaths[] = {
+				"SCPH-30000_5315239/SCPH-30000_5315239_NVM.bin",
+				"../SCPH-30000_5315239/SCPH-30000_5315239_NVM.bin",
+				"../../SCPH-30000_5315239/SCPH-30000_5315239_NVM.bin",
+				"/Users/imac/Downloads/spc_antigravity/SCPH-30000_5315239/SCPH-30000_5315239_NVM.bin",
+				nullptr
+			};
+			for (int i = 0; nvmPaths[i]; i++) {
+				if (LoadNvram(nvmPaths[i])) break;
+			}
 		}
 	}
 }
@@ -92,33 +113,77 @@ bool CMechaCon::LoadRom(const char* filePath)
 	size_t readBytes = fread(m_rom, 1, sizeof(m_rom), f);
 	fclose(f);
 
-	if (readBytes != sizeof(m_rom)) {
+	if (readBytes == 196608) {
+		// 192 KB ROM (v3 active Banks FD, FE, FF): map to 0x10000..0x3FFFF, zero out Bank FC
+		memmove(&m_rom[0x10000], &m_rom[0], 196608);
+		memset(&m_rom[0], 0, 0x10000);
+	} else if (readBytes != sizeof(m_rom)) {
 		return false;
 	}
 
-	// 1. Parse ROM Header at 0x3FB2C
-	m_rev    = m_rom[0x3FB30];
-	m_minor  = m_rom[0x3FB31];
-	m_major  = m_rom[0x3FB32];
-	m_region = m_rom[0x3FB33];
+	const char* envMode = getenv("PLAY_MECHACON_MODE");
+	bool isV1Mode = (envMode && (strcmp(envMode, "v1") == 0 || strcmp(envMode, "1.02") == 0 || strcmp(envMode, "v1.02") == 0));
 
-	m_isV3 = (m_major >= 3);
-	m_dspVer = m_isV3 ? 0x06 : 0x04;
+	if (isV1Mode) {
+		m_rev    = 0x00;
+		m_minor  = 0x02;
+		m_major  = 0x01;
+		m_region = 0x00; // Japan
+		m_isV3   = false;
+		m_isV1Early = true;
+		m_dspVer = 0x00;
+		m_modelName = "SCPH-10000";
 
-	// 2. Dynamically extract Model Name string from ROM (search "SCPH-")
-	m_modelName = "SCPH-30000";
-	for (size_t i = 0; i < sizeof(m_rom) - 16; i++) {
-		if (m_rom[i] == 'S' && m_rom[i+1] == 'C' && m_rom[i+2] == 'P' && m_rom[i+3] == 'H' && m_rom[i+4] == '-') {
-			char modelBuf[32] = { 0 };
-			size_t len = 0;
-			while (len < 16 && (i + len) < sizeof(m_rom)) {
-				char c = static_cast<char>(m_rom[i + len]);
-				if (c <= 0x20 || c > 0x7E) break;
-				modelBuf[len++] = c;
-			}
-			if (len >= 8) {
-				m_modelName = modelBuf;
-				break;
+		// Authentic Console ID & i.Link ID from MECHA_v1.02_0903300
+		uint8 cid[8] = { 0x01, 0xD2, 0x11, 0x01, 0x84, 0xC8, 0x0D, 0x00 };
+		memcpy(m_consoleId, cid, 8);
+		uint8 ilink[8] = { 0x07, 0x00, 0x00, 0x1A, 0x44, 0xBB, 0x0A, 0x10 };
+		memcpy(m_ilinkId, ilink, 8);
+
+		// Patch ROM header in memory so SCMD 0x03-00 reports v1.02
+		m_rom[0x3FB30] = 0x00;
+		m_rom[0x3FB31] = 0x02;
+		m_rom[0x3FB32] = 0x01;
+		m_rom[0x3FB33] = 0x00;
+
+		// Recompute Section 8 checksum in ROM header so 9/9 sections pass verification
+		uint32 sec8_start = 0x38000;
+		uint32 sec8_words = 0x1EE0 * 2;
+		uint32 sec8_acc = 0;
+		for (uint32 w = 0; w < sec8_words; w++) {
+			sec8_acc = (sec8_acc + (m_rom[sec8_start + w * 2] | (m_rom[sec8_start + w * 2 + 1] << 8))) & 0xFFFF;
+		}
+		m_rom[0x3FB80 + 14] = static_cast<uint8>(sec8_acc & 0xFF);
+		m_rom[0x3FB80 + 15] = static_cast<uint8>((sec8_acc >> 8) & 0xFF);
+		m_rom[0x3FB80 + 32] = static_cast<uint8>(sec8_acc & 0xFF);
+		m_rom[0x3FB80 + 33] = static_cast<uint8>((sec8_acc >> 8) & 0xFF);
+	} else {
+		// 1. Parse ROM Header at 0x3FB2C
+		m_rev    = m_rom[0x3FB30];
+		m_minor  = m_rom[0x3FB31];
+		m_major  = m_rom[0x3FB32];
+		m_region = m_rom[0x3FB33];
+
+		m_isV3 = (m_major >= 3);
+		m_isV1Early = (m_major == 2 && m_minor <= 2); // v2.02 == early CXP102064; v1.xx == CXP101064
+		if (m_major == 1) m_isV1Early = true;
+		m_dspVer = m_isV3 ? 0x06 : 0x04;
+
+		// 2. Dynamically extract Model Name string from ROM (search "SCPH-")
+		m_modelName = "SCPH-30000";
+		for (size_t i = 0; i < sizeof(m_rom) - 16; i++) {
+			if (m_rom[i] == 'S' && m_rom[i+1] == 'C' && m_rom[i+2] == 'P' && m_rom[i+3] == 'H' && m_rom[i+4] == '-') {
+				char modelBuf[32] = { 0 };
+				size_t len = 0;
+				while (len < 16 && (i + len) < sizeof(m_rom)) {
+					char c = static_cast<char>(m_rom[i + len]);
+					if (c <= 0x20 || c > 0x7E) break;
+					modelBuf[len++] = c;
+				}
+				if (len >= 8) {
+					m_modelName = modelBuf;
+					break;
+				}
 			}
 		}
 	}
@@ -200,15 +265,16 @@ void CMechaCon::DiscoverRomTables()
 	}
 
 	if (scmdMainOffset != static_cast<size_t>(-1)) {
-		for (size_t i = 0; i < bestCount; i++) {
-			uint32 handler = *reinterpret_cast<const uint32*>(&m_rom[scmdMainOffset + i * 4]);
-			uint16 cmdNum = 0;
-			if (i < 29) {
-				cmdNum = static_cast<uint16>(i); // SCMD 0x00 .. 0x1C
-			} else {
-				cmdNum = static_cast<uint16>(0x40 + (i - 29)); // SCMD 0x40 .. 0x43
+		if (bestCount >= 5) {
+			size_t numStd = bestCount - 5;
+			for (size_t i = 0; i < numStd; i++) {
+				uint32 handler = *reinterpret_cast<const uint32*>(&m_rom[scmdMainOffset + i * 4]);
+				m_scmdTable[static_cast<uint16>(i)] = { handler, 0 };
 			}
-			m_scmdTable[cmdNum] = { handler, 0 };
+			m_scmdTable[0x40] = { *reinterpret_cast<const uint32*>(&m_rom[scmdMainOffset + numStd * 4]), 0 };
+			m_scmdTable[0x41] = { *reinterpret_cast<const uint32*>(&m_rom[scmdMainOffset + (numStd + 1) * 4]), 0 };
+			m_scmdTable[0x42] = { *reinterpret_cast<const uint32*>(&m_rom[scmdMainOffset + (numStd + 2) * 4]), 0 };
+			m_scmdTable[0x43] = { *reinterpret_cast<const uint32*>(&m_rom[scmdMainOffset + (numStd + 3) * 4]), 0 };
 		}
 	} else {
 		// Fallback minimal table if table discovery fails
@@ -251,17 +317,89 @@ void CMechaCon::SetupDynamicRamLayout()
 	// Clear RAM
 	memset(m_ram, 0, sizeof(m_ram));
 
-	// Config Region 2 buffer at 0x1940 (offset 0x140 in m_ram)
+	if (m_major == 1) {
+		const char* r0Paths[] = {
+			"MECHA_v1.02_0903300/REGION0_RAM256.BIN",
+			"../MECHA_v1.02_0903300/REGION0_RAM256.BIN",
+			"../../MECHA_v1.02_0903300/REGION0_RAM256.BIN",
+			"/Users/imac/Downloads/spc_antigravity/MECHA_v1.02_0903300/REGION0_RAM256.BIN",
+			nullptr
+		};
+		for (int i = 0; r0Paths[i]; i++) {
+			FILE* f = fopen(r0Paths[i], "rb");
+			if (f) {
+				fread(&m_ram[0x050], 1, 256, f);
+				fclose(f);
+				break;
+			}
+		}
+
+		const char* r1Paths[] = {
+			"MECHA_v1.02_0903300/REGION1_RAM256.BIN",
+			"../MECHA_v1.02_0903300/REGION1_RAM256.BIN",
+			"../../MECHA_v1.02_0903300/REGION1_RAM256.BIN",
+			"/Users/imac/Downloads/spc_antigravity/MECHA_v1.02_0903300/REGION1_RAM256.BIN",
+			nullptr
+		};
+		for (int i = 0; r1Paths[i]; i++) {
+			FILE* f = fopen(r1Paths[i], "rb");
+			if (f) {
+				fread(&m_ram[0x090], 1, 256, f);
+				fclose(f);
+				break;
+			}
+		}
+
+		const char* r2Paths[] = {
+			"MECHA_v1.02_0903300/REGION2_RAM256.BIN",
+			"../MECHA_v1.02_0903300/REGION2_RAM256.BIN",
+			"../../MECHA_v1.02_0903300/REGION2_RAM256.BIN",
+			"/Users/imac/Downloads/spc_antigravity/MECHA_v1.02_0903300/REGION2_RAM256.BIN",
+			nullptr
+		};
+		for (int i = 0; r2Paths[i]; i++) {
+			FILE* f = fopen(r2Paths[i], "rb");
+			if (f) {
+				fread(&m_ram[0x140], 1, 256, f);
+				fclose(f);
+				break;
+			}
+		}
+		// In Region 2: ensure Block 7 has FF 67 flag at 0x1B0
+		m_ram[0x1B0] = 0xFF;
+		m_ram[0x1B1] = 0x67;
+		return;
+	}
+
+	// Region 0 buffer at offset 0x050 in m_ram (Lens calibration data)
+	m_ram[0x050] = 0x61; m_ram[0x051] = 0x6A; m_ram[0x054] = 0x40; m_ram[0x056] = 0x01;
+	m_ram[0x058] = 0x07; m_ram[0x05A] = 0x07; m_ram[0x05C] = 0x07; m_ram[0x05E] = 0x04;
+
+	// Region 1 buffer at offset 0x090 in m_ram (Servo filter parameters)
+	m_ram[0x090] = 0x50; m_ram[0x091] = 0x61; m_ram[0x092] = 0x6A; m_ram[0x094] = 0x01;
+
+	// Region 2 buffer at offset 0x140 in m_ram (Config 2 / Drive & Worker)
 	// Block 7 (+0x70, offset 0x1B0 in m_ram): preserve 0x19B0.0 flag so Config Open succeeds!
 	m_ram[0x1B0] = 0xFF;
 	m_ram[0x1B1] = 0x67;
 
-	// Populate worker signature tail:
+	// Region 3 buffer at offset 0x240 in m_ram (605R Region 3 read probe data)
+	// Block 1 (+0x10, offset 0x250): authentic data from 605RR300_READ1.BIN
+	static const uint8 s_region3_blk1[16] = {
+		0x31, 0x21, 0x80, 0xB4, 0x00, 0x57, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xDD
+	};
+	memcpy(&m_ram[0x250], s_region3_blk1, sizeof(s_region3_blk1));
+
+	// Populate worker signature tail in Region 2:
 	// v3 (BGA2): shifted tail starts at Block 12 byte 14 (offset 0x20E in m_ram)
-	// v2: standard tail starts at Block 13 byte 0 (offset 0x210 in m_ram)
+	// v2.04+: standard tail starts at Block 13 byte 0 (offset 0x210 in m_ram)
+	// v1/v2.02 (early): NO tail signature populated — worker is at a different offset.
+	//   This ensures Layout 0/1/2 don't false-match so mecha_detect_worker_layout()
+	//   falls back to Layout 3 (LAYOUT_V1_EARLY_V2) based on firmware version.
 	if (m_isV3) {
 		memcpy(&m_ram[0x20E], s_shifted_worker_tail, sizeof(s_shifted_worker_tail));
-	} else {
+	} else if (!m_isV1Early) {
 		memcpy(&m_ram[0x210], s_standard_worker_tail, sizeof(s_standard_worker_tail));
 	}
 }
@@ -338,6 +476,7 @@ uint8 CMechaCon::ExecuteSCmd(uint16 cmdNum, const uint8* inBuff, uint16 inBuffSi
 
 	if (cmdNum == 0x0A) {
 		// SCMD 0x0A: Read NVRAM Word
+		// Real hardware returns: out[1] = high byte (m_nvram[w*2+1]), out[2] = low byte (m_nvram[w*2])
 		if (!inBuff || inBuffSize < 2) {
 			outBuff[0] = 0x80;
 			return 0x80;
@@ -345,8 +484,8 @@ uint8 CMechaCon::ExecuteSCmd(uint16 cmdNum, const uint8* inBuff, uint16 inBuffSi
 		uint16 wordAddr = (static_cast<uint16>(inBuff[0]) << 8) | inBuff[1];
 		if (wordAddr < 512) {
 			outBuff[0] = 0x00;
-			outBuff[1] = m_nvram[wordAddr * 2];     // High byte
-			outBuff[2] = m_nvram[wordAddr * 2 + 1]; // Low byte
+			outBuff[1] = m_nvram[wordAddr * 2 + 1]; // High byte
+			outBuff[2] = m_nvram[wordAddr * 2];     // Low byte
 			return 0x00;
 		}
 		outBuff[0] = 0x80;
@@ -355,14 +494,15 @@ uint8 CMechaCon::ExecuteSCmd(uint16 cmdNum, const uint8* inBuff, uint16 inBuffSi
 
 	if (cmdNum == 0x0B) {
 		// SCMD 0x0B: Write NVRAM Word
+		// Real hardware takes: in[2] = high byte (m_nvram[w*2+1]), in[3] = low byte (m_nvram[w*2])
 		if (!inBuff || inBuffSize < 4) {
 			outBuff[0] = 0x80;
 			return 0x80;
 		}
 		uint16 wordAddr = (static_cast<uint16>(inBuff[0]) << 8) | inBuff[1];
 		if (wordAddr < 512) {
-			m_nvram[wordAddr * 2]     = inBuff[2];
-			m_nvram[wordAddr * 2 + 1] = inBuff[3];
+			m_nvram[wordAddr * 2 + 1] = inBuff[2]; // High byte
+			m_nvram[wordAddr * 2]     = inBuff[3]; // Low byte
 			outBuff[0] = 0x00;
 			return 0x00;
 		}
@@ -379,6 +519,11 @@ uint8 CMechaCon::ExecuteSCmd(uint16 cmdNum, const uint8* inBuff, uint16 inBuffSi
 
 	if (cmdNum == 0x17) {
 		// SCMD 0x17: Read Model Name (ASCII 16 bytes)
+		// On MechaCon v1 (CXP101064), SCMD 0x17 does not exist / returns error status 0x80
+		if (m_major == 1) {
+			outBuff[0] = 0x80;
+			return 0x80;
+		}
 		uint8 offset = (inBuff && inBuffSize > 0) ? inBuff[0] : 0;
 		outBuff[0] = 0x00;
 		if (offset < m_modelName.length()) {
@@ -398,6 +543,13 @@ uint8 CMechaCon::ExecuteSCmd(uint16 cmdNum, const uint8* inBuff, uint16 inBuffSi
 		m_configRegion = inBuff[1];
 		m_configBlockCount = inBuff[2];
 		m_configBlockIndex = 0;
+
+		// On real hardware, regions > 3 return error 0x80
+		if (m_configRegion > 3) {
+			outBuff[0] = 0x80;
+			return 0x80;
+		}
+
 		m_configOpen = true;
 		outBuff[0] = 0x00;
 		return 0x00;
@@ -409,7 +561,14 @@ uint8 CMechaCon::ExecuteSCmd(uint16 cmdNum, const uint8* inBuff, uint16 inBuffSi
 			outBuff[0] = 0x80;
 			return 0x80;
 		}
-		uint32 ramOffset = 0x140 + (m_configBlockIndex * 16);
+		uint32 regionBase = 0x140;
+		if (m_configRegion == 0) regionBase = 0x050;
+		else if (m_configRegion == 1) regionBase = 0x090;
+		else if (m_configRegion == 2) regionBase = 0x140;
+		else if (m_configRegion == 3) regionBase = 0x240;
+
+		uint32 blockIdx = m_configBlockIndex & 0x0F;
+		uint32 ramOffset = regionBase + (blockIdx * 16);
 		if (ramOffset + 16 <= sizeof(m_ram)) {
 			memcpy(outBuff, &m_ram[ramOffset], 16);
 		} else {
@@ -438,16 +597,21 @@ uint8 CMechaCon::ExecuteSCmd(uint16 cmdNum, const uint8* inBuff, uint16 inBuffSi
 			return 0x80;
 		}
 
+		uint32 regionBase = 0x140;
+		if (m_configRegion == 0) regionBase = 0x050;
+		else if (m_configRegion == 1) regionBase = 0x090;
+		else if (m_configRegion == 2) regionBase = 0x140;
+		else if (m_configRegion == 3) regionBase = 0x240;
+
 		m_configBlockCount--;
-		uint32 ramOffset = 0x140 + (m_configBlockIndex * 16);
+		uint32 blockIdx = m_configBlockIndex & 0x0F;
+		uint32 ramOffset = regionBase + (blockIdx * 16);
 		if (ramOffset + 16 <= sizeof(m_ram)) {
 			memcpy(&m_ram[ramOffset], inBuff, 16);
 		}
 		m_configBlockIndex++;
 
-		if (m_configBlockIndex >= 12) {
-			ProcessWorker();
-		}
+		ProcessWorker();
 		outBuff[0] = 0x00;
 		return 0x00;
 	}
@@ -467,38 +631,63 @@ uint8 CMechaCon::ExecuteSCmd(uint16 cmdNum, const uint8* inBuff, uint16 inBuffSi
 
 void CMechaCon::ProcessWorker()
 {
-	// On v3, check BGA2 trigger first!
-	if (m_isV3) {
-		uint8 triggerBga2 = m_ram[0x20C];
-		if (triggerBga2 != 0) {
-			uint32 romAddr = m_ram[0x1F6] | (static_cast<uint32>(m_ram[0x1F7]) << 8) | (static_cast<uint32>(m_ram[0x1F8]) << 16);
-			uint8 countWords = m_ram[0x20B];
+	// Layout 3: early-v1-v202-fields (CXP101064 / CXP102064 v2.02)
+	// Base is at 0x140 in m_ram. Relative worker layout matches standard-fields:
+	// Flags at Block 11 byte 6 (0x1F6), trigger bits = 0x03
+	// ROM pointer: Block 11 bytes 8-11 (0x1F8-0x1FB)
+	// Word count: Block 12 byte 13 (0x20D)
+	// Worker state: Block 12 byte 14 (0x20E) -- != 0 means armed
+	// Dest NVRAM word: Block 13 bytes 0-1 (0x210-0x211)
+	if (m_isV1Early) {
+		bool earlyTrigger = ((m_ram[0x1F6] & 0x03) == 0x03 && m_ram[0x20E] != 0);
+		if (!earlyTrigger && !m_configOpen && m_ram[0x20E] != 0) {
+			earlyTrigger = true;
+		}
+		if (earlyTrigger) {
+			uint32 romAddr = m_ram[0x1F8]
+			               | (static_cast<uint32>(m_ram[0x1F9]) << 8)
+			               | (static_cast<uint32>(m_ram[0x1FA]) << 16)
+			               | (static_cast<uint32>(m_ram[0x1FB]) << 24);
+			uint8 countWords = m_ram[0x20D];
 			if (countWords == 0) countWords = 128;
-			uint16 nvmWord = m_ram[0x20E]; // Byte 15 (0x20F) is SCMD 0x42 block checksum, nvmWord is 0..255
+
+			uint16 nvmWord = m_ram[0x210] | (static_cast<uint16>(m_ram[0x211]) << 8);
+			if (nvmWord >= 512) nvmWord = m_ram[0x210];
 
 			uint32 romOffset = romAddr & 0x3FFFF;
 			uint32 copyBytes = countWords * 2;
 			uint32 nvmOffset = nvmWord * 2;
 
-			if (romAddr < 0xFD0000) {
-				if (nvmOffset + copyBytes <= sizeof(m_nvram)) {
-					memset(&m_nvram[nvmOffset], 0x00, copyBytes);
-				}
-			} else if (romOffset + copyBytes <= sizeof(m_rom) && nvmOffset + copyBytes <= sizeof(m_nvram)) {
+			if (romOffset + copyBytes <= sizeof(m_rom) && nvmOffset + copyBytes <= sizeof(m_nvram)) {
 				memcpy(&m_nvram[nvmOffset], &m_rom[romOffset], copyBytes);
 			}
-			m_ram[0x20C] = 0;
-			return;
+			// Clear flags and worker state
+			m_ram[0x1F6] &= ~0x03;
+			m_ram[0x20E] = 0;
+			CLog::GetInstance().Print(LOG_NAME, "[WORKER-V1] ROM 0x%06X -> NVRAM[%d] (%d words)\r\n",
+			                          romAddr, nvmWord, countWords);
 		}
+		return;
 	}
 
-	// Check Layout 0 trigger: Block 12, byte 14 (offset 0x20E in m_ram)
-	uint8 triggerStandard = m_ram[0x20E];
-	if (triggerStandard != 0) {
-		uint32 romAddr = m_ram[0x1F8] | (static_cast<uint32>(m_ram[0x1F9]) << 8) | (static_cast<uint32>(m_ram[0x1FA]) << 16);
-		uint8 countWords = m_ram[0x20D];
+	// 1. Shifted layout (v3.xx and v2.14 BGA2):
+	// Flags at Block 11 byte 4 (0x1F4), state at Block 12 byte 12 (0x20C)
+	bool shiftedTrigger = ((m_ram[0x1F4] & 0x03) == 0x03 && m_ram[0x20C] != 0);
+	if (!shiftedTrigger && m_isV3 && !m_configOpen && m_ram[0x20C] != 0) {
+		// Close fallback on v3
+		shiftedTrigger = true;
+	}
+
+	if (shiftedTrigger) {
+		uint32 romAddr = m_ram[0x1F6] | (static_cast<uint32>(m_ram[0x1F7]) << 8) | (static_cast<uint32>(m_ram[0x1F8]) << 16);
+		uint8 countWords = m_ram[0x20B];
 		if (countWords == 0) countWords = 128;
-		uint16 nvmWord = m_ram[0x210] | (static_cast<uint16>(m_ram[0x211]) << 8);
+
+		// Destination NVRAM word: low byte at 0x20E, high byte at 0x20F (via checksum adjustment)
+		uint16 nvmWord = m_ram[0x20E] | (static_cast<uint16>(m_ram[0x20F]) << 8);
+		if (nvmWord >= 512) {
+			nvmWord = m_ram[0x20E]; // Fallback to low byte if checksum adjustment wasn't used
+		}
 
 		uint32 romOffset = romAddr & 0x3FFFF;
 		uint32 copyBytes = countWords * 2;
@@ -511,26 +700,44 @@ void CMechaCon::ProcessWorker()
 		} else if (romOffset + copyBytes <= sizeof(m_rom) && nvmOffset + copyBytes <= sizeof(m_nvram)) {
 			memcpy(&m_nvram[nvmOffset], &m_rom[romOffset], copyBytes);
 		}
-		m_ram[0x20E] = 0;
+		m_ram[0x1F4] &= ~0x03;
+		m_ram[0x20C] = 0;
 		return;
 	}
 
-	// Fallback BGA2 trigger for v2.14
-	uint8 triggerBga2 = m_ram[0x20C];
-	if (triggerBga2 != 0) {
-		uint32 romAddr = m_ram[0x1F6] | (static_cast<uint32>(m_ram[0x1F7]) << 8) | (static_cast<uint32>(m_ram[0x1F8]) << 16);
-		uint8 countWords = m_ram[0x20B];
+	// 2. Standard layout (v2.04..v2.14):
+	// Flags at Block 11 byte 6 (0x1F6), state at Block 12 byte 14 (0x20E)
+	bool standardTrigger = ((m_ram[0x1F6] & 0x03) == 0x03 && m_ram[0x20E] != 0);
+	if (!standardTrigger && !m_isV3 && !m_configOpen && m_ram[0x20E] != 0) {
+		// Close fallback on v2
+		standardTrigger = true;
+	}
+
+	if (standardTrigger) {
+		uint32 romAddr = m_ram[0x1F8] | (static_cast<uint32>(m_ram[0x1F9]) << 8) | (static_cast<uint32>(m_ram[0x1FA]) << 16);
+		uint8 countWords = m_ram[0x20D];
 		if (countWords == 0) countWords = 128;
-		uint16 nvmWord = m_ram[0x20E] | (static_cast<uint16>(m_ram[0x20F]) << 8);
+
+		// Destination NVRAM word: Block 13 bytes 0-1 (0x210-0x211)
+		uint16 nvmWord = m_ram[0x210] | (static_cast<uint16>(m_ram[0x211]) << 8);
+		if (nvmWord >= 512) {
+			nvmWord = m_ram[0x210];
+		}
 
 		uint32 romOffset = romAddr & 0x3FFFF;
 		uint32 copyBytes = countWords * 2;
 		uint32 nvmOffset = nvmWord * 2;
 
-		if (romOffset + copyBytes <= sizeof(m_rom) && nvmOffset + copyBytes <= sizeof(m_nvram)) {
+		if (m_isV3 && romAddr < 0xFD0000) {
+			if (nvmOffset + copyBytes <= sizeof(m_nvram)) {
+				memset(&m_nvram[nvmOffset], 0x00, copyBytes);
+			}
+		} else if (romOffset + copyBytes <= sizeof(m_rom) && nvmOffset + copyBytes <= sizeof(m_nvram)) {
 			memcpy(&m_nvram[nvmOffset], &m_rom[romOffset], copyBytes);
 		}
-		m_ram[0x20C] = 0;
+		m_ram[0x1F6] &= ~0x03;
+		m_ram[0x20E] = 0;
+		return;
 	}
 }
 

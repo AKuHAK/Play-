@@ -62,6 +62,7 @@ namespace Iop
 
 		// Dynamic firmware metadata
 		bool m_isV3 = false;
+		bool m_isV1Early = false; // true for v1.xx (CXP101064) and v2.02 (early CXP102064)
 		uint8 m_region = 0x00;
 		uint8 m_major = 0x02;
 		uint8 m_minor = 0x0C;
