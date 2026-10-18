@@ -175,11 +175,11 @@ bool CMechaCon::LoadRom(const char* filePath)
 
 		// Handle early development / unusual ROM version encodings
 		if (fileSize == 262144 && m_major == 3 && m_minor == 1) {
-			// 1.01 (DTL-T10000)
+			// 1.03 (DTL-T10000 / CXP101064-602R: header is [Major=1, Minor=3])
 			m_major = 1;
-			m_minor = 1;
+			m_minor = 3;
 		} else if (fileSize == 262144 && m_major == 2 && m_minor == 1) {
-			// 1.02 (SCPH-10000 early)
+			// 1.02 (SCPH-10000 early / CXP101064-605R: header is [Major=1, Minor=2])
 			m_major = 1;
 			m_minor = 2;
 		} else if (m_major == 0 && m_minor == 10) {
