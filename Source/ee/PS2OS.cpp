@@ -1171,6 +1171,8 @@ void CPS2OS::ThreadReset(uint32 id)
 
 void CPS2OS::CheckLivingThreads()
 {
+	if(m_isExecutingExecPS2) return;
+
 	//Check if we have a living thread (this is needed for autotests to work properly)
 	bool hasLiveThread = false;
 	for(auto thread : m_threads)
@@ -1661,8 +1663,11 @@ void CPS2OS::sc_ExecPS2()
 	//loaded initially, so, we need to make sure there's no stale
 	//threads or handlers
 
+	m_isExecutingExecPS2 = true;
 	sc_ExitDeleteThread();
+	m_isExecutingExecPS2 = false;
 	assert(m_currentThreadId == m_idleThreadId);
+	m_state->allocateThreadNextId = 1;
 
 	//Clear all remaining INTC handlers
 	std::vector<uint32> intcHandlerIds;

@@ -476,6 +476,7 @@ private:
 	std::string m_executableName;
 
 	Ee::CIdleEvaluator m_idleEvaluator;
+	bool m_isExecutingExecPS2 = false;
 
 #ifdef DEBUGGER_INCLUDED
 	static const SYSCALL_NAME g_syscallNames[];

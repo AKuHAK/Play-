@@ -4,6 +4,7 @@
 #include "Iop_SifManPs2.h"
 #include "IopBios.h"
 #include "Log.h"
+#include "../Ps2Const.h"
 
 #define LOG_NAME ("iop_fileio")
 
@@ -98,7 +99,7 @@ bool CFileIoHandler1000::Invoke(uint32 method, uint32* args, uint32 argsSize, ui
 		break;
 	case 3:
 		assert(retSize == 4);
-		*ret = m_ioman->Write(args[0], args[2], reinterpret_cast<const void*>(ram + args[1]));
+		*ret = m_ioman->Write(args[0], args[2], reinterpret_cast<const void*>(ram + (args[1] & (PS2::EE_RAM_SIZE - 1))));
 		break;
 	case METHOD_ID_SEEK:
 		LaunchSeekRequest(args, argsSize, ret, retSize, ram);
@@ -118,7 +119,7 @@ bool CFileIoHandler1000::Invoke(uint32 method, uint32* args, uint32 argsSize, ui
 		break;
 	case 11:
 		assert(retSize == 4);
-		*ret = m_ioman->Dread(args[0], reinterpret_cast<Ioman::DIRENTRY*>(ram + args[1]));
+		*ret = m_ioman->Dread(args[0], reinterpret_cast<Ioman::DIRENTRY*>(ram + (args[1] & (PS2::EE_RAM_SIZE - 1))));
 		break;
 	case 12:
 		assert(retSize == 4);
@@ -161,7 +162,7 @@ void CFileIoHandler1000::LaunchReadRequest(uint32* args, uint32 argsSize, uint32
 	auto moduleData = reinterpret_cast<MODULEDATA*>(m_iopRam + m_moduleDataAddr);
 	moduleData->method = METHOD_ID_READ;
 	moduleData->resultAddr = static_cast<uint32>(reinterpret_cast<uint8*>(ret) - ram);
-	moduleData->eeBufferAddr = args[1];
+	moduleData->eeBufferAddr = args[1] & (PS2::EE_RAM_SIZE - 1);
 	moduleData->size = args[2];
 	moduleData->bytesProcessed = 0;
 	moduleData->handle = args[0];
