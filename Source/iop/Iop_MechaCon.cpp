@@ -54,10 +54,12 @@ void CMechaCon::Reset()
 
 	if (!romLoaded) {
 		const char* romPaths[] = {
-			isV1Mode ? "dumps/2.02_0.BIN" : "dumps/2.12_0.BIN",
-			isV1Mode ? "../dumps/2.02_0.BIN" : "../dumps/2.12_0.BIN",
-			isV1Mode ? "../../dumps/2.02_0.BIN" : "../../dumps/2.12_0.BIN",
-			isV1Mode ? "/Users/imac/Downloads/spc_antigravity/dumps/2.02_0.BIN" : "/Users/imac/Downloads/spc_antigravity/dumps/2.12_0.BIN",
+			isV1Mode ? "dumps/2.02_0.BIN" : "dumps/2.13_0.BIN",
+			isV1Mode ? "../dumps/2.02_0.BIN" : "../dumps/2.13_0.BIN",
+			isV1Mode ? "../../dumps/2.02_0.BIN" : "../../dumps/2.13_0.BIN",
+			isV1Mode ? "/Users/imac/Downloads/spc_antigravity/dumps/2.02_0.BIN" : "/Users/imac/Downloads/spc_antigravity/dumps/2.13_0.BIN",
+			"dumps/2.12_0.BIN",
+			"../dumps/2.12_0.BIN",
 			nullptr
 		};
 		for (int i = 0; romPaths[i]; i++) {
@@ -110,14 +112,21 @@ bool CMechaCon::LoadRom(const char* filePath)
 	FILE* f = fopen(filePath, "rb");
 	if (!f) return false;
 
-	size_t readBytes = fread(m_rom, 1, sizeof(m_rom), f);
+	fseek(f, 0, SEEK_END);
+	long fileSize = ftell(f);
+	fseek(f, 0, SEEK_SET);
+
+	if (fileSize != 262144 && fileSize != 196608) {
+		fclose(f);
+		return false;
+	}
+
+	memset(m_rom, 0xFF, sizeof(m_rom));
+	size_t readOffset = (fileSize == 196608) ? 0x10000 : 0x00000;
+	size_t readBytes = fread(&m_rom[readOffset], 1, fileSize, f);
 	fclose(f);
 
-	if (readBytes == 196608) {
-		// 192 KB ROM (v3 active Banks FD, FE, FF): map to 0x10000..0x3FFFF, zero out Bank FC
-		memmove(&m_rom[0x10000], &m_rom[0], 196608);
-		memset(&m_rom[0], 0, 0x10000);
-	} else if (readBytes != sizeof(m_rom)) {
+	if (readBytes != static_cast<size_t>(fileSize)) {
 		return false;
 	}
 
@@ -158,13 +167,28 @@ bool CMechaCon::LoadRom(const char* filePath)
 		m_rom[0x3FB80 + 32] = static_cast<uint8>(sec8_acc & 0xFF);
 		m_rom[0x3FB80 + 33] = static_cast<uint8>((sec8_acc >> 8) & 0xFF);
 	} else {
-		// 1. Parse ROM Header at 0x3FB2C
+		// 1. Parse ROM Header at offset -0x4D4 from end (0x3FB2C in 256KB bank FF)
 		m_rev    = m_rom[0x3FB30];
 		m_minor  = m_rom[0x3FB31];
 		m_major  = m_rom[0x3FB32];
 		m_region = m_rom[0x3FB33];
 
-		m_isV3 = (m_major >= 3);
+		// Handle early development / unusual ROM version encodings
+		if (fileSize == 262144 && m_major == 3 && m_minor == 1) {
+			// 1.01 (DTL-T10000)
+			m_major = 1;
+			m_minor = 1;
+		} else if (fileSize == 262144 && m_major == 2 && m_minor == 1) {
+			// 1.02 (SCPH-10000 early)
+			m_major = 1;
+			m_minor = 2;
+		} else if (m_major == 0 && m_minor == 10) {
+			// 2.04_10 (Arcade)
+			m_major = 2;
+			m_minor = 4;
+		}
+
+		m_isV3 = (fileSize == 196608) || (m_major >= 3);
 		m_isV1Early = (m_major == 2 && m_minor <= 2); // v2.02 == early CXP102064; v1.xx == CXP101064
 		if (m_major == 1) m_isV1Early = true;
 		m_dspVer = m_isV3 ? 0x06 : 0x04;
@@ -211,12 +235,11 @@ void CMechaCon::DiscoverRomTables()
 	uint32 basePtr   = m_isV3 ? 0xFD0000 : 0xFC0000;
 
 	// 1. Scan for SCMD 03 PMAP Table
-	// Signature: [0x00, 0x01, ptr32, 0x01, 0x01, ptr32, 0x10, ..., 0x11, ...]
+	// Signature: [0x00, 0x01, ptr32, 0x01, 0x01, ptr32, ...]
 	size_t scmd03Offset = static_cast<size_t>(-1);
 	for (size_t a = scanStart; a < scanEnd - 24; a++) {
 		if (m_rom[a] == 0x00 && m_rom[a+1] == 0x01 &&
-		    m_rom[a+6] == 0x01 && m_rom[a+7] == 0x01 &&
-		    m_rom[a+12] == 0x10 && m_rom[a+18] == 0x11) {
+		    m_rom[a+6] == 0x01 && m_rom[a+7] == 0x01) {
 			uint32 p0 = *reinterpret_cast<const uint32*>(&m_rom[a+2]);
 			uint32 p1 = *reinterpret_cast<const uint32*>(&m_rom[a+8]);
 			if (p0 >= basePtr && p0 < 0x1000000 && p1 >= basePtr && p1 < 0x1000000) {
