@@ -46,6 +46,9 @@ public:
 	void LoadCDROM(fs::path filePath);
 	void BootArcadeMachine(fs::path);
 	void loadState(int);
+	//Captures the emulated display (not the window) to `path`; format follows the extension.
+	//`completion` runs on the GS thread.
+	void SaveScreenshot(const QString& path, std::function<void(bool)> completion);
 
 #ifdef DEBUGGER_INCLUDED
 	void ShowMainWindow();

@@ -22,6 +22,7 @@
 #include <ctime>
 
 #include <QDateTime>
+#include <QImage>
 #include <QFileDialog>
 #include <QTimer>
 #include <QWindow>
@@ -1166,6 +1167,20 @@ void MainWindow::on_actionCapture_Screen_triggered()
 	                                                                        [&](int res, const char* msg) -> void {
 		                                                                        m_msgLabel->setText(msg);
 	                                                                        });
+}
+
+void MainWindow::SaveScreenshot(const QString& path, std::function<void(bool)> completion)
+{
+	m_screenShotCompleteConnection = CScreenShotUtils::TriggerGetScreenshotBitmap(m_virtualMachine,
+	                                                                              [path, completion](Framework::CBitmap bitmap) -> void {
+		                                                                              bool saved = false;
+		                                                                              if(!bitmap.IsEmpty() && (bitmap.GetBitsPerPixel() == 32))
+		                                                                              {
+			                                                                              QImage image(bitmap.GetPixels(), bitmap.GetWidth(), bitmap.GetHeight(), bitmap.GetPitch(), QImage::Format_RGBA8888);
+			                                                                              saved = image.save(path);
+		                                                                              }
+		                                                                              completion(saved);
+	                                                                              });
 }
 
 void MainWindow::on_actionList_Bootables_triggered()

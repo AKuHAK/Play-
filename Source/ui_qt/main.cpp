@@ -117,11 +117,13 @@ int main(int argc, char* argv[])
 		QString scPath = parser.value(screenshot_option);
 		int delayMs = parser.isSet(screenshot_delay_option) ? parser.value(screenshot_delay_option).toInt() : 3500;
 		QTimer::singleShot(delayMs, [&w, scPath, &a]() {
-			QPixmap pixmap = w.grab();
-			pixmap.save(scPath);
-			printf("[SCREENSHOT] Saved screenshot to %s\n", scPath.toUtf8().constData());
-			fflush(stdout);
-			a.quit();
+			//Grab the emulated display: QWidget::grab() can't read the GL/Vulkan output window
+			w.SaveScreenshot(scPath, [scPath, &a](bool saved) {
+				printf(saved ? "[SCREENSHOT] Saved screenshot to %s\n" : "[SCREENSHOT] Failed to save screenshot to %s\n",
+				       scPath.toUtf8().constData());
+				fflush(stdout);
+				QMetaObject::invokeMethod(&a, "quit", Qt::QueuedConnection);
+			});
 		});
 	}
 

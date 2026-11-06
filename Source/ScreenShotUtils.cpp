@@ -12,23 +12,52 @@
 
 CScreenShotUtils::Connection CScreenShotUtils::TriggerGetScreenshot(CPS2VM* virtualMachine, Callback completionCallback)
 {
-	return virtualMachine->m_ee->m_gs->OnFlipComplete.ConnectOnce(
+	return TriggerGetScreenshotBitmap(virtualMachine,
+	                                  [=](Framework::CBitmap buffer) -> void {
+		                                  try
+		                                  {
+			                                  if(buffer.IsEmpty())
+			                                  {
+				                                  throw std::runtime_error("Empty screenshot.");
+			                                  }
+			                                  auto name = GenerateScreenShotPath(virtualMachine->m_ee->m_os->GetExecutableName());
+			                                  Framework::CStdStream outputStream(name.string().c_str(), "wb");
+			                                  Framework::CBMP::WriteBitmap(buffer, outputStream);
+
+			                                  auto msgstr = string_format("Screenshot saved as '%s'.", name.filename().string().c_str());
+			                                  completionCallback(0, msgstr.c_str());
+		                                  }
+		                                  catch(const std::exception&)
+		                                  {
+			                                  completionCallback(-1, "Error occured while trying to save screenshot.");
+		                                  }
+	                                  });
+}
+
+CScreenShotUtils::Connection CScreenShotUtils::TriggerGetScreenshotBitmap(CPS2VM* virtualMachine, BitmapCallback completionCallback)
+{
+	auto gs = virtualMachine->m_ee->m_gs;
+	if(!gs)
+	{
+		completionCallback(Framework::CBitmap());
+		return Connection();
+	}
+	auto connection = gs->OnFlipComplete.ConnectOnce(
 	    [=]() -> void {
+		    Framework::CBitmap buffer;
 		    try
 		    {
-			    auto buffer = virtualMachine->m_ee->m_gs->GetScreenshot();
-			    auto name = GenerateScreenShotPath(virtualMachine->m_ee->m_os->GetExecutableName());
-			    Framework::CStdStream outputStream(name.string().c_str(), "wb");
-			    Framework::CBMP::WriteBitmap(buffer, outputStream);
-
-			    auto msgstr = string_format("Screenshot saved as '%s'.", name.filename().string().c_str());
-			    completionCallback(0, msgstr.c_str());
+			    buffer = gs->GetScreenshot();
 		    }
 		    catch(const std::exception&)
 		    {
-			    completionCallback(-1, "Error occured while trying to save screenshot.");
 		    }
+		    completionCallback(std::move(buffer));
 	    });
+	//Some software (e.g. video players writing straight to the displayed buffer) never
+	//changes the display registers, so no flip would ever happen: force one.
+	gs->Flip(CGSHandler::FLIP_FLAG_FORCE);
+	return connection;
 }
 
 fs::path CScreenShotUtils::GetScreenShotDirectoryPath()

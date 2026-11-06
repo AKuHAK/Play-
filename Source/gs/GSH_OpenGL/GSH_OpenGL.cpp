@@ -2260,9 +2260,14 @@ void CGSH_OpenGL::ProcessClutTransfer(uint32 csa, uint32)
 
 Framework::CBitmap CGSH_OpenGL::GetScreenshot()
 {
-#if 0
+	//Called on the GS thread (from OnFlipComplete), so the GL context is current.
+	//Captures the displayed PS2 framebuffer at rendering resolution.
 	auto dispInfo = GetCurrentDisplayInfo();
 	const auto& dispLayer = dispInfo.layers[0];
+	if(!dispLayer.enabled || (dispLayer.width == 0) || (dispLayer.height == 0))
+	{
+		throw std::runtime_error("No displayed framebuffer.");
+	}
 
 	FramebufferPtr framebuffer;
 	for(const auto& candidateFramebuffer : m_framebuffers)
@@ -2272,23 +2277,40 @@ Framework::CBitmap CGSH_OpenGL::GetScreenshot()
 		    (GetFramebufferBitDepth(candidateFramebuffer->m_psm) == GetFramebufferBitDepth(dispLayer.psm)) &&
 		    (candidateFramebuffer->m_width == dispLayer.bufWidth))
 		{
-			//We have a winner
 			framebuffer = candidateFramebuffer;
 			break;
 		}
 	}
-
-	auto imgbuffer = Framework::CBitmap(dispWidth * m_fbScale, dispHeight * m_fbScale, 32);
-	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer->m_framebuffer);
-	glReadPixels(0, 0, dispWidth * m_fbScale, dispHeight * m_fbScale, GL_RGBA, GL_UNSIGNED_BYTE, imgbuffer.GetPixels());
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	if(halfHeight)
+	if(!framebuffer)
 	{
-		return imgbuffer.Resize(dispWidth * m_fbScale, dispHeight * 2 * m_fbScale);
+		throw std::runtime_error("Displayed framebuffer not found.");
+	}
+
+	uint32 width = std::min(dispLayer.width, framebuffer->m_width) * m_fbScale;
+	uint32 height = std::min(dispLayer.height, framebuffer->m_height) * m_fbScale;
+
+	auto imgbuffer = Framework::CBitmap(width, height, 32);
+	GLuint readFramebuffer = m_multisampleEnabled ? static_cast<GLuint>(framebuffer->m_resolveFramebuffer) : static_cast<GLuint>(framebuffer->m_framebuffer);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, readFramebuffer);
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, imgbuffer.GetPixels());
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+	m_validGlState &= ~GLSTATE_FRAMEBUFFER;
+	CHECKGLERROR();
+
+	//PS2 alpha is not screen opacity
+	auto pixels = imgbuffer.GetPixels();
+	for(uint32 i = 0; i < width * height; i++)
+	{
+		pixels[i * 4 + 3] = 0xFF;
+	}
+
+	if(GetCrtIsInterlaced() && GetCrtIsFrameMode())
+	{
+		//Display rect is halved in that mode, restore the aspect
+		return imgbuffer.Resize(width, height * 2);
 	}
 	return imgbuffer;
-#endif
-	return Framework::CBitmap();
 }
 
 Framework::CBitmap CGSH_OpenGL::GetFramebuffer(uint64 frameReg)
