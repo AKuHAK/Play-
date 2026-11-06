@@ -291,8 +291,9 @@ if(TARGET_PLATFORM_MACOS)
 	if(USE_GSH_VULKAN)
 		cmake_path(GET Vulkan_LIBRARY PARENT_PATH VULKAN_LIB_DIR)
 		list(APPEND OSX_RES ${VULKAN_LIB_DIR}/libMoltenVK.dylib)
-		list(APPEND UI_QT_PROJECT_LIBS "-framework QuartzCore")
 	endif()
+	# LayerFromView.mm is always built on macOS and uses CAMetalLayer
+	list(APPEND UI_QT_PROJECT_LIBS "-framework QuartzCore")
 	add_executable(Play MACOSX_BUNDLE ${QT_SOURCES} ${QT_MOC_SRCS} ${QT_RES_SOURCES} ${QT_UI_HEADERS} ${OSX_RES} ${ARCADE_DEFS})
 	# Set a custom plist file for the app bundle
 	# NOTE: for these values to be used Info.plist has to be edited
