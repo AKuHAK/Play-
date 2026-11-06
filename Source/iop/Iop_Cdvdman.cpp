@@ -107,6 +107,11 @@ uint32 CCdvdman::CdGetDiskTypeDirect(COpticalMedia* opticalMedia)
 	//Assert just to make sure that we're not handling different optical medias
 	//(Only one can be inserted at once)
 	assert(m_opticalMedia == opticalMedia);
+	if(!m_opticalMedia)
+	{
+		//No disc inserted (e.g. an ELF booted from host:)
+		return CCdvdman::CDVD_DISKTYPE_NODISC;
+	}
 	switch(m_opticalMedia->GetMediaBlockType())
 	{
 	case COpticalMedia::MEDIA_BLOCK_TYPE_2352:

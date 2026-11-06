@@ -31,6 +31,7 @@ namespace Iop
 
 		enum CDVD_DISKTYPE
 		{
+			CDVD_DISKTYPE_NODISC = 0x00,
 			CDVD_DISKTYPE_PS2CD = 0x12,
 			CDVD_DISKTYPE_PS2DVD = 0x14,
 		};
